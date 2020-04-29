@@ -2,6 +2,7 @@ from pathlib import Path
 import csv
 import pandas as pd
 import pdb
+import pickle
 from scipy.io import mmread
 
 here = Path(__file__).parent
@@ -11,15 +12,8 @@ raw_data = data / "Raw/atlas"
 max_in_type = 200
 
 
-def get_cell_types_map():
-    try:
-        with open(cell_types_map_file, 'r') as f:
-            cell_types_map = {row[0]:[int(el) for el in row[1:]] for row in csv.reader(f)}
-        return cell_types_map
-    except FileNotFoundError:
-        pass
-
-    metadata = pd.read_csv(
+def get_metadata():
+    return pd.read_csv(
         raw_data / "meta.csv",
         usecols=[13],
         dtype={
@@ -54,38 +48,60 @@ def get_cell_types_map():
         },
     ).dropna()
 
-    cell_types_map = {}
 
-    while len(metadata) > 0:
-        row = metadata.sample(1)
-        celltype = row["celltype"].values[0]
-        row_indx = row.index[0]
-        metadata.drop(row_indx)
-        try:
-            cell_types_map[celltype].append(row_indx)
-        except KeyError:
-            cell_types_map[celltype] = [row_indx]
-        if len(cell_types_map[celltype]) == max_in_type:
-            metadata = metadata[metadata["celltype"] != celltype]
+def get_samps(metadata):
+    try:
+        with open(cell_types_map_file, "r") as f:
+            cell_types_map = {
+                row[0]: [int(el) for el in row[1:]] for row in csv.reader(f)
+            }
+    except FileNotFoundError:
+        cell_types_map = {}
+        while len(metadata) > 0:
+            row = metadata.sample(1)
+            celltype = row["celltype"].values[0]
+            row_indx = row.index[0]
+            metadata.drop(row_indx)
+            try:
+                cell_types_map[celltype].append(row_indx)
+            except KeyError:
+                cell_types_map[celltype] = [row_indx]
+            if len(cell_types_map[celltype]) == max_in_type:
+                metadata = metadata[metadata["celltype"] != celltype]
 
-    with open(cell_types_map_file, 'w') as f:
-        w = csv.writer(f)
-        for celltype, rows in cell_types_map.items():
-            w.writerow([celltype]+rows)
+        with open(cell_types_map_file, "w") as f:
+            w = csv.writer(f)
+            for celltype, rows in cell_types_map.items():
+                w.writerow([celltype] + rows)
 
-    return cell_types_map
+    return sorted([el for subl in cell_types_map.values() for el in subl])
 
-def get_norm_expr(cell_types_map):
-    rows = sorted([el for subl in cell_types_map.values() for el in subl])
-    raw_counts = mmread((raw_data/"raw_counts.mtx").__str__()).tocsr()[:,rows]
-    # <class 'scipy.sparse.coo.coo_matrix'>
-    # https://stackoverflow.com/questions/7609108/slicing-sparse-scipy-matrix
-    # 
-    df = pd.SparseDataFrame(raw_counts).fillna(0)
-    pdb.set_trace()
-    return rows
+
+def get_raw_counts(samps, metadata):
+    try:
+        with open("raw_counts.pickle", "rb") as f:
+            raw_counts = pickle.load(f)
+    except FileNotFoundError:
+        raw_counts = mmread((raw_data / "raw_counts.mtx").__str__()).tocsr()[
+            :, samps
+        ]
+    df = pd.DataFrame(raw_counts.todense())
+    df.columns = samps
+    with open(raw_data / "genes.tsv",'r') as f:
+        genes = [line.strip().split('\t')[1] for line in f]
+    df.index = genes
+    return df
+    # load in size factors
+    # Downsample result = dataframe.mul(series, axis=0)
+    # norm df with them
+    # save a cached copy
+    # edit fn to look for cached copy first.
+    # Downsample and save feature vector
+    # Wait a moment, think that SingleCellExperiment might want raw counts, so:
+    # Downsample and save size_factors vector
+
 
 if __name__ == "__main__":
-    cell_types_map = get_cell_types_map()
-    norm_expr = get_norm_expr(cell_types_map)
-
+    metadata = get_metadata()
+    samps = get_samps(metadata)
+    raw_counts = get_raw_counts(samps, metadata)
