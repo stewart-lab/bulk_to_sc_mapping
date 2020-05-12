@@ -9,11 +9,16 @@ here = Path(__file__).parent
 data = here / "../Data"
 cell_types_map_file = data / "cell_types_map.csv"
 raw_data = data / "Raw/atlas"
-max_in_type = 200
+max_in_type = 2  # 00
+max_genes = 5
+
+import warnings
+
+warnings.filterwarnings("error")
 
 
 def get_metadata():
-    return pd.read_csv(
+    df = pd.read_csv(
         raw_data / "meta.csv",
         usecols=[13],
         dtype={
@@ -47,6 +52,8 @@ def get_metadata():
             "endo_gutCluster": object,
         },
     ).dropna()
+    df.index = df.index.rename("sample_num")
+    return df
 
 
 def get_samps(metadata):
@@ -61,7 +68,7 @@ def get_samps(metadata):
             row = metadata.sample(1)
             celltype = row["celltype"].values[0]
             row_indx = row.index[0]
-            metadata.drop(row_indx)
+            metadata = metadata.drop(row_indx)
             try:
                 cell_types_map[celltype].append(row_indx)
             except KeyError:
@@ -79,17 +86,30 @@ def get_samps(metadata):
 
 def get_raw_counts(samps, metadata):
     try:
-        with open("raw_counts.pickle", "rb") as f:
-            raw_counts = pickle.load(f)
+        with open("downsampled_df.pickle", "rb") as f:
+            df = pickle.load(f)
     except FileNotFoundError:
-        raw_counts = mmread((raw_data / "raw_counts.mtx").__str__()).tocsr()[
-            :, samps
-        ]
-    df = pd.DataFrame(raw_counts.todense())
-    df.columns = samps
-    with open(raw_data / "genes.tsv",'r') as f:
-        genes = [line.strip().split('\t')[1] for line in f]
-    df.index = genes
+        try:
+            with open("raw_counts.pickle", "rb") as f:
+                raw_counts = pickle.load(f)
+        except FileNotFoundError:
+            raw_counts = mmread(
+                (raw_data / "raw_counts.mtx").__str__()
+            ).tocsr()[:, samps]
+            with open("raw_counts.pickle", "wb") as f:
+                pickle.dump(raw_counts, f)
+        df = pd.DataFrame(raw_counts.todense())
+        df.columns = samps
+        with open(raw_data / "genes.tsv", "r") as f:
+            genes = [line.strip().split("\t")[1] for line in f]
+        df.index = genes
+        top_genes = (
+            df.sum(axis=1).sort_values(ascending=False).head(max_genes).index
+        )
+        df = df.loc[top_genes, :]
+        df.index =  df.index.rename('Genes')
+        with open("downsampled_df.pickle", "wb") as f:
+            pickle.dump(df, f)
     return df
     # load in size factors
     # Downsample result = dataframe.mul(series, axis=0)
@@ -105,3 +125,6 @@ if __name__ == "__main__":
     metadata = get_metadata()
     samps = get_samps(metadata)
     raw_counts = get_raw_counts(samps, metadata)
+    raw_counts.to_csv('raw_downsampled_counts.csv')
+    metadata.loc[samps,:].to_csv('downsampled_celltypes.csv')
+    pdb.set_trace()

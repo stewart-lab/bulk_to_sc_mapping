@@ -1,0 +1,27 @@
+---
+author: "John Steill"
+title: "Marioni data transformed to SingleCellExperiment Format"
+date: "`r Sys.Date()`"
+---
+
+``` {r 1_Prelims, message=FALSE}
+library(SingleCellExperiment)
+library(Matrix)
+library(CHETAH)
+```
+
+# Where Python Left Off:
+* We downloaded the Marioni Data and uncompressed it.
+* Downsampled 2(00) cells of each type. 
+
+
+``` {r 2_Load_Reduced_Data}
+ref_counts = as.matrix(read.csv(
+    'raw_downsampled_counts.csv', header=TRUE, row.names="Genes"))
+ref_ct = read.csv('downsampled_celltypes.csv', header=T)
+sce <- SingleCellExperiment(ref_counts)
+reference <- SingleCellExperiment(assays = list(counts = ref_counts),
+                                     colData = DataFrame(celltypes = ref_ct))
+
+```
+
