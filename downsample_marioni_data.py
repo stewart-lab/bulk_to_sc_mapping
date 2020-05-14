@@ -3,18 +3,23 @@ import csv
 import pandas as pd
 import pdb
 import pickle
+import warnings
 from scipy.io import mmread
+
+warnings.filterwarnings("error")
 
 here = Path(__file__).parent
 data = here / "../Data"
-cell_types_map_file = data / "cell_types_map.csv"
-raw_data = data / "Raw/atlas"
-max_in_type = 2  # 00
-max_genes = 5
-
-import warnings
-
-warnings.filterwarnings("error")
+cell_types_map_file = data / "Processed/cell_types_map.csv"
+raw_data = data / "Marioni/atlas"
+raw_counts_file = data / "Processed/raw_counts.pickle"
+downsampled_file = data / "Processed/downsampled_df.pickle"
+downsampled_counts_csv = data / "Processed/raw_downsampled_counts.csv"
+target_csv = data / "Processed/sub_0794_downsampled.csv"
+downsampled_celltypes_csv = data / "Processed/downsampled_celltypes.csv"
+bulk_file = data / "Sub_794_mm10_148b59ff535d0575/genes.no_mt.ec.tab"
+max_in_type = 20  # 00
+max_genes = 50
 
 
 def get_metadata():
@@ -84,20 +89,12 @@ def get_samps(metadata):
     return sorted([el for subl in cell_types_map.values() for el in subl])
 
 
-def get_raw_counts(samps, metadata):
+def get_downsampled_count_df(samps, metadata):
     try:
-        with open("downsampled_df.pickle", "rb") as f:
+        with open(downsampled_file, "rb") as f:
             df = pickle.load(f)
     except FileNotFoundError:
-        try:
-            with open("raw_counts.pickle", "rb") as f:
-                raw_counts = pickle.load(f)
-        except FileNotFoundError:
-            raw_counts = mmread(
-                (raw_data / "raw_counts.mtx").__str__()
-            ).tocsr()[:, samps]
-            with open("raw_counts.pickle", "wb") as f:
-                pickle.dump(raw_counts, f)
+        raw_counts = get_raw_counts(samps)
         df = pd.DataFrame(raw_counts.todense())
         df.columns = samps
         with open(raw_data / "genes.tsv", "r") as f:
@@ -107,24 +104,36 @@ def get_raw_counts(samps, metadata):
             df.sum(axis=1).sort_values(ascending=False).head(max_genes).index
         )
         df = df.loc[top_genes, :]
-        df.index =  df.index.rename('Genes')
-        with open("downsampled_df.pickle", "wb") as f:
+        df.index = df.index.rename("Genes")
+        with open(downsampled_file, "wb") as f:
             pickle.dump(df, f)
     return df
-    # load in size factors
-    # Downsample result = dataframe.mul(series, axis=0)
-    # norm df with them
-    # save a cached copy
-    # edit fn to look for cached copy first.
-    # Downsample and save feature vector
-    # Wait a moment, think that SingleCellExperiment might want raw counts, so:
-    # Downsample and save size_factors vector
+
+
+def get_raw_counts(samps):
+    try:
+        with open(raw_counts_file, "rb") as f:
+            raw_counts = pickle.load(f)
+    except FileNotFoundError:
+        raw_counts = mmread((raw_data / "raw_counts.mtx").__str__()).tocsr()[
+            :, samps
+        ]
+        with open(raw_counts_file, "wb") as f:
+            pickle.dump(raw_counts, f)
+    return raw_counts
 
 
 if __name__ == "__main__":
+    # Downsample and save size_factors vector
     metadata = get_metadata()
     samps = get_samps(metadata)
-    raw_counts = get_raw_counts(samps, metadata)
-    raw_counts.to_csv('raw_downsampled_counts.csv')
-    metadata.loc[samps,:].to_csv('downsampled_celltypes.csv')
+    raw_counts = get_downsampled_count_df(samps, metadata)
+    raw_counts.to_csv(downsampled_counts_csv)
+    metadata.loc[samps, :].to_csv(downsampled_celltypes_csv)
+    target_df = pd.read_csv(bulk_file, sep="\t", index_col=0).drop(
+        "description", axis=1
+    )
+    target_df = target_df.loc[raw_counts.index, :]
+    target_df.to_csv(target_csv)
+
     pdb.set_trace()
