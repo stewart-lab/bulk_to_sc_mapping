@@ -4,6 +4,8 @@ import pandas as pd
 import pdb
 import pickle
 import warnings
+import numpy as np
+from sklearn.decomposition import PCA
 from scipy.io import mmread
 
 warnings.filterwarnings("error")
@@ -16,10 +18,11 @@ raw_counts_file = data / "Processed/raw_counts.pickle"
 downsampled_file = data / "Processed/downsampled_df.pickle"
 downsampled_counts_csv = data / "Processed/raw_downsampled_counts.csv"
 target_csv = data / "Processed/sub_0794_downsampled.csv"
+target_2d_csv = data / "Processed/sub_0794_downsampled_2d.csv"
 downsampled_celltypes_csv = data / "Processed/downsampled_celltypes.csv"
 bulk_file = data / "Sub_794_mm10_148b59ff535d0575/genes.no_mt.ec.tab"
-max_in_type = 20  # 00
-max_genes = 50
+max_in_type = 100  # 00
+max_genes = 5000
 
 
 def get_metadata():
@@ -122,18 +125,29 @@ def get_raw_counts(samps):
             pickle.dump(raw_counts, f)
     return raw_counts
 
+def make_reduced_dim(tg):
+    df = target_df.transpose()
+    pca = PCA(n_components=2)
+    pca.fit(df)
+    columns = ['pca_%i' % i for i in range(2)]
+    df_pca = pd.DataFrame(pca.transform(df), columns=columns, index=df.index)
+    df_pca.index = df_pca.index.rename("sample")
+    df_pca.to_csv(target_2d_csv)
 
 if __name__ == "__main__":
     # Downsample and save size_factors vector
-    metadata = get_metadata()
-    samps = get_samps(metadata)
-    raw_counts = get_downsampled_count_df(samps, metadata)
-    raw_counts.to_csv(downsampled_counts_csv)
-    metadata.loc[samps, :].to_csv(downsampled_celltypes_csv)
     target_df = pd.read_csv(bulk_file, sep="\t", index_col=0).drop(
         "description", axis=1
     )
-    target_df = target_df.loc[raw_counts.index, :]
+    metadata = get_metadata()
+    samps = get_samps(metadata)
+    raw_counts = get_downsampled_count_df(samps, metadata)
+    metadata.loc[samps, :].to_csv(downsampled_celltypes_csv)
+    raw_index = list(raw_counts.index.drop_duplicates(keep=False))
+    mutual_genes = [el for el in raw_index if el in target_df.index]
+    raw_counts = raw_counts.loc[mutual_genes, :]
+    target_df = target_df.loc[mutual_genes, :]
+    target_df.index = target_df.index.rename("Genes")
+    raw_counts.to_csv(downsampled_counts_csv)
     target_df.to_csv(target_csv)
-
-    pdb.set_trace()
+    make_reduced_dim(target_df)

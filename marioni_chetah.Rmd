@@ -5,20 +5,37 @@ date: "`r Sys.Date()`"
 ---
 
 ``` {r 1_Prelims, message=FALSE}
+# output: pdf_document
 library(SingleCellExperiment)
 library(Matrix)
 library(CHETAH)
 ```
 
 # Where Python Left Off:
-* We downloaded the Marioni Data and uncompressed it.
-* Downsampled 2(00) cells of each type. 
 
-``` {r 2_Load_Reduced_Data}
+* We Prepped Marioni Data:
+   + downloaded and uncompressed it.
+   + Filtered out duplicate genes (isoforms of 4 Genes only?)
+   +     ENSMUSG00000026276	Sept2
+   +     ENSMUSG00000112508	Sept2
+   + Downsampled 100 cells of each type. 
+   + Picked out top 5000 expressed Genes
+   + Filtered out ~100 genes that aren't in our mm10 reference
+   + Saved as ../Data/Processed/raw_downsampled_counts.csv
+* Prepped BW data:
+   + Aligned directly to mm10 (24% alignment rates)
+   + Filtered Genes to be the same as Marioni ~4870
+   + Saved as ../Data/Processed/sub_0794_downsampled.csv
+
+``` {r 2_Load_Reduced_Data, message=FALSE}
 input_counts = as.matrix(read.csv(
     '../Data/Processed/sub_0794_downsampled.csv',
     header=TRUE,
     row.names="Genes"))
+input_2d = as.matrix(read.csv(
+    '../Data/Processed/sub_0794_downsampled_2d.csv', 
+    header=TRUE,
+    row.names="sample"))
 ref_counts = as.matrix(read.csv(
     '../Data/Processed/raw_downsampled_counts.csv',
     header=TRUE,
@@ -30,7 +47,14 @@ row.names(ref_ct) <- make.names(row.names(ref_ct))
 reference <- SingleCellExperiment(
     assays = list(counts = ref_counts),
     colData = DataFrame(celltypes = as.character(ref_ct[,1])))
-input <- SingleCellExperiment(assays = list(counts = input_counts))
-output <- CHETAHclassifier(input = input, ref_cells = reference)
+input <- SingleCellExperiment(
+    assays = list(counts = input_counts),
+    reducedDims = SimpleList(TSNE = input_2d))
+input <- CHETAHclassifier(input = input, ref_cells = reference)
 ```
 
+# Chetah has run without error:
+``` {r 3_Play_With_Chetah_Output, fig.width=10, fig.height=14}
+input$celltype_CHETAH
+PlotCHETAH(input = input, interm = TRUE)
+```
